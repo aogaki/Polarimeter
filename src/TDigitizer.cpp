@@ -8,7 +8,8 @@ TDigitizer::TDigitizer()
       fDigitizerModel(0),
       fNChs(0),
       fTSample(0),
-      fNBits(0)
+      fNBits(0),
+      fDataArray(nullptr)
 {
 }
 

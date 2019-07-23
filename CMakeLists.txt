@@ -75,6 +75,7 @@ target_link_libraries(polarimeter
   ${ROOT_LIBRARIES}
   CAENDigitizer
   ${ROOT_LIBRARY_DIR}/libRHTTP.so # for THttp
+  ${ROOT_LIBRARY_DIR}/libSpectrum.so # for TSpectrum
 )
 
 target_compile_definitions(polarimeter
