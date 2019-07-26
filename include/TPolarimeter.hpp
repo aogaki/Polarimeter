@@ -5,6 +5,7 @@
 
 #include <TH2.h>
 
+#include "TAsymmetry.hpp"
 #include "TWaveRecord.hpp"
 
 class TPolarimeter
@@ -14,11 +15,12 @@ class TPolarimeter
   TPolarimeter(uint16_t link);
   ~TPolarimeter();
 
-  void SetParameter(PolPar_t par) { fDigitizer->LoadParameters(par); };
-
   void Run();
   void DummyRun();
 
+  void Analysis();
+
+  void SetParameter(PolPar_t par) { fDigitizer->LoadParameters(par); };
   void SetShortGate(uint16_t val) { fShortGate = val; };
   void SetLongGate(uint16_t val) { fLongGate = val; };
   void SetThreshold(uint16_t val) { fThreshold = val; };
@@ -30,9 +32,13 @@ class TPolarimeter
   uint16_t fThreshold;
 
   // Think shared is really needed?
-  std::shared_ptr<TH2D> fHisIn;
-  std::shared_ptr<TH2D> fHisOut1;
-  std::shared_ptr<TH2D> fHisOut2;
+  std::unique_ptr<TH2D> fHisIn;
+  std::unique_ptr<TH2D> fHisOut1;
+  std::unique_ptr<TH2D> fHisOut2;
+
+  std::unique_ptr<TAsymmetry> fInPlane;
+  std::unique_ptr<TAsymmetry> fOutPlane1;
+  std::unique_ptr<TAsymmetry> fOutPlane2;
 
   int kbhit();
 };

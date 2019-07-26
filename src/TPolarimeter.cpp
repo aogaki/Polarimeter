@@ -8,6 +8,7 @@
 #include <TGraph.h>
 #include <TTree.h>
 
+#include "TAsymmetry.hpp"
 #include "TBeamSignal.hpp"
 #include "TPolarimeter.hpp"
 #include "TSignal.hpp"
@@ -15,12 +16,18 @@
 TPolarimeter::TPolarimeter() : fShortGate(30), fLongGate(300), fThreshold(500)
 {
   fHisIn.reset(new TH2D("HisIn", "PS vs TOF", 1000, 0., 100., 1000, 0., 1.));
+  fHisIn->SetDirectory(nullptr);
+  fInPlane.reset(new TAsymmetry(fHisIn.get(), 0));
 
   fHisOut1.reset(
       new TH2D("HisOut1", "PS vs TOF", 1000, 0., 100., 1000, 0., 1.));
+  fHisOut1->SetDirectory(nullptr);
+  fOutPlane1.reset(new TAsymmetry(fHisOut1.get(), 1));
 
   fHisOut2.reset(
       new TH2D("HisOut2", "PS vs TOF", 1000, 0., 100., 1000, 0., 1.));
+  fHisOut2->SetDirectory(nullptr);
+  fOutPlane2.reset(new TAsymmetry(fHisOut2.get(), 2));
 }
 
 TPolarimeter::TPolarimeter(uint16_t link) : TPolarimeter()
@@ -95,7 +102,7 @@ void TPolarimeter::DummyRun()
   std::unique_ptr<TCanvas> canv(new TCanvas("canv", "test", 1000, 1000));
   canv->Divide(2, 2);
 
-  std::unique_ptr<TFile> file(new TFile("Data/wave3.root", "READ"));
+  std::unique_ptr<TFile> file(new TFile("Data/wave11.root", "READ"));
   auto tree = (TTree *)file->Get("wave");
   tree->SetBranchStatus("*", kFALSE);
 
@@ -107,43 +114,42 @@ void TPolarimeter::DummyRun()
   tree->SetBranchStatus("trace8", kTRUE);
   tree->SetBranchAddress("trace8", &trace[2]);
 
-  std::unique_ptr<TSignal> inPlane(
+  std::unique_ptr<TSignal> inSignal(
       new TSignal(trace[0], fThreshold, fShortGate, fLongGate));
-  std::unique_ptr<TSignal> outPlane1(
+  std::unique_ptr<TSignal> outSignal1(
       new TSignal(trace[1], fThreshold, fShortGate, fLongGate));
-  std::unique_ptr<TSignal> outPlane2(
+  std::unique_ptr<TSignal> outSignal2(
       new TSignal(trace[1], fThreshold, fShortGate, fLongGate));
-  std::unique_ptr<TSignal> beam(
-      new TSignal(trace[2], fThreshold, fShortGate, fLongGate));
+  std::unique_ptr<TBeamSignal> beam(new TBeamSignal(trace[2]));
 
   const auto nEve = tree->GetEntries();
   for (auto iEve = 0; true; iEve++) {
     if (iEve >= nEve) iEve = 0;
     tree->GetEntry(iEve);
-    inPlane->ProcessSignal();
-    outPlane1->ProcessSignal();
-    outPlane2->ProcessSignal();
+    inSignal->ProcessSignal();
+    outSignal1->ProcessSignal();
+    outSignal2->ProcessSignal();
     beam->ProcessSignal();
 
     auto beamTrg = beam->GetTrgTime();
 
-    auto long1 = inPlane->GetLongCharge();
-    auto short1 = inPlane->GetShortCharge();
+    auto long1 = inSignal->GetLongCharge();
+    auto short1 = inSignal->GetShortCharge();
     auto ps1 = short1 / long1;
     constexpr auto timeOffset1 = 0.;
-    auto tof1 = inPlane->GetTrgTime() - beamTrg + timeOffset1;
+    auto tof1 = inSignal->GetTrgTime() - beamTrg + timeOffset1;
 
-    auto long2 = outPlane1->GetLongCharge();
-    auto short2 = outPlane1->GetShortCharge();
+    auto long2 = outSignal1->GetLongCharge();
+    auto short2 = outSignal1->GetShortCharge();
     auto ps2 = short2 / long2;
     constexpr auto timeOffset2 = 10.14 + 1.04;  // Check Aogaki
-    auto tof2 = outPlane1->GetTrgTime() - beamTrg + timeOffset2;
+    auto tof2 = outSignal1->GetTrgTime() - beamTrg + timeOffset2;
 
-    auto long3 = outPlane2->GetLongCharge();
-    auto short3 = outPlane2->GetShortCharge();
+    auto long3 = outSignal2->GetLongCharge();
+    auto short3 = outSignal2->GetShortCharge();
     auto ps3 = short3 / long3;
     constexpr auto timeOffset3 = 10.14 + 1.04;  // Check Aogaki
-    auto tof3 = outPlane2->GetTrgTime() - beamTrg + timeOffset3;
+    auto tof3 = outSignal2->GetTrgTime() - beamTrg + timeOffset3;
 
     if (tof1 > 0.) fHisIn->Fill(tof1, ps1);
     if (tof2 > 0.) fHisOut1->Fill(tof2, ps2);
@@ -156,15 +162,44 @@ void TPolarimeter::DummyRun()
       fHisOut1->Draw("COL");
       canv->cd(3);
       fHisOut2->Draw("COL");
+      if (((iEve + 1) % 100000) == 0) {
+        // if (0 == 0) {
+        canv->cd(4);
+        canv->cd(4)->SetLogz();
+        Analysis();
+      }
       canv->Modified();
       canv->Update();
     }
 
-    usleep(1000);
+    usleep(10);
     if (kbhit()) break;
   }
 
   file->Close();
+}
+
+void TPolarimeter::Analysis()
+{
+  fInPlane->SetHist(fHisIn.get());
+  fOutPlane1->SetHist(fHisOut1.get());
+  fOutPlane2->SetHist(fHisOut2.get());
+
+  fInPlane->DataAnalysis();
+  auto yieldIn = fInPlane->GetYield();
+
+  fOutPlane1->DataAnalysis();
+  auto yieldOut1 = fOutPlane1->GetYield();
+
+  fOutPlane2->DataAnalysis();
+  auto yieldOut2 = fOutPlane2->GetYield();
+
+  std::cout << yieldOut1 << "\t" << yieldIn << "\t"
+            << fabs(yieldIn - yieldOut1) / (yieldIn + yieldOut1) << std::endl;
+  std::cout << yieldOut2 << "\t" << yieldIn << "\t"
+            << fabs(yieldIn - yieldOut2) / (yieldIn + yieldOut2) << std::endl;
+
+  fInPlane->DrawResult();
 }
 
 int TPolarimeter::kbhit()

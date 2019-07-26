@@ -21,18 +21,37 @@ TAsymmetry::TAsymmetry()
 
 TAsymmetry::TAsymmetry(TH2 *hist, int index) : TAsymmetry()
 {
+  // If NOT set directory as nullptr, delete is nightmare.
   fIndex = index;
   fHist.reset((TH2D *)hist->Clone(Form("Hist2D%02d", fIndex)));
   fHist->SetTitle("PS vs TOF");
+  fHist->SetDirectory(nullptr);
 
   fHistTime.reset((TH1D *)hist->ProjectionX(Form("HistTime%02d", fIndex)));
   fHistTime->SetTitle("TOF");
+  fHistTime->SetDirectory(nullptr);
 
   fHistPS.reset((TH1D *)hist->ProjectionY(Form("HistPS%02d", fIndex)));
   fHistPS->SetTitle("PS");
+  fHistPS->SetDirectory(nullptr);
 }
 
 TAsymmetry::~TAsymmetry() {}
+
+void TAsymmetry::SetHist(TH2 *hist)
+{
+  fHist.reset((TH2D *)hist->Clone(Form("Hist2D%02d", fIndex)));
+  fHist->SetTitle("PS vs TOF");
+  fHist->SetDirectory(nullptr);
+
+  fHistTime.reset((TH1D *)hist->ProjectionX(Form("HistTime%02d", fIndex)));
+  fHistTime->SetTitle("TOF");
+  fHistTime->SetDirectory(nullptr);
+
+  fHistPS.reset((TH1D *)hist->ProjectionY(Form("HistPS%02d", fIndex)));
+  fHistPS->SetTitle("PS");
+  fHistPS->SetDirectory(nullptr);
+};
 
 template <typename T>
 void TAsymmetry::SetPosition(T &obj, double x1, double y1, double x2, double y2)
@@ -117,6 +136,52 @@ void TAsymmetry::Plot()
   }
 }
 
+void TAsymmetry::DrawResult()
+{
+  if (!fVerLine) {
+    fVerLine.reset(new TLine());
+    fVerLine->SetLineWidth(2);
+    fVerLine->SetLineColor(kRed);
+    fVerLine->SetLineStyle(10);
+  }
+  if (!fHorLine) {
+    fHorLine.reset(new TLine());
+    fHorLine->SetLineWidth(2);
+    fHorLine->SetLineColor(kBlue);
+    fHorLine->SetLineStyle(10);
+  }
+  if (!fArea) {
+    fArea.reset(new TBox);
+    // fArea->SetFillStyle(3003);
+    fArea->SetFillStyle(0);
+    fArea->SetFillColorAlpha(kGreen, 0.5);
+    fArea->SetLineWidth(2);
+    fArea->SetLineColor(kGreen);
+  }
+
+  if (fHist) {
+    fHist->Draw("COLZ");
+
+    auto y1 = fHist->GetYaxis()->GetBinCenter(1);
+    auto lastBinY = fHist->GetYaxis()->GetNbins();
+    auto y2 = fHist->GetYaxis()->GetBinCenter(lastBinY);
+    auto x1 = fHist->GetXaxis()->GetBinCenter(1);
+    auto lastBinX = fHist->GetXaxis()->GetNbins();
+    auto x2 = fHist->GetXaxis()->GetBinCenter(lastBinX);
+    SetPosition(fVerLine, fTimeTh, y1, fTimeTh, y2);
+    SetPosition(fHorLine, x1, fPulseShapeTh, x2, fPulseShapeTh);
+    fVerLine->Draw("SAME");
+    fHorLine->Draw("SAME");
+
+    auto peak = fFitFnc->GetParameter(1);
+    auto sigma = fFitFnc->GetParameter(2);
+    auto timePos = fSpectrum->GetPositionX()[0];
+    SetPosition(fArea, timePos - fTimeWindow / 2., peak - 3 * sigma,
+                timePos + fTimeWindow / 2., peak + 3 * sigma);
+    fArea->Draw("SAME");
+  }
+}
+
 void TAsymmetry::DataAnalysis()
 {
   PulseShapeCut();
@@ -138,7 +203,7 @@ void TAsymmetry::TimeCut()
     auto binContent = fHistResult->GetBinContent(i);
     if (binContent < th) {
       fHistResult->GetXaxis()->SetRange(i, nBins);
-      std::cout << i << std::endl;
+      // std::cout << i << std::endl;
       fTimeTh = fHistResult->GetBinCenter(i);
       break;
     }
@@ -157,6 +222,7 @@ void TAsymmetry::PulseShapeCut()
     if (binContent < th) {
       fHistResult.reset(
           fHist->ProjectionX(Form("HistResult%02d", fIndex), 1, i));
+      fHistResult->SetDirectory(nullptr);
       // fHistResult->Rebin(4);
       // std::cout << i << std::endl;
       fPulseShapeTh = fHistPS->GetBinCenter(i);
@@ -171,6 +237,7 @@ void TAsymmetry::PulseShapeCutLast()
   auto cut = fHist->GetXaxis()->FindBin(fTimeTh);
   fHistSlowComponent.reset(
       fHist->ProjectionY(Form("HistSlowComponent%02d", fIndex), cut));
+  fHistSlowComponent->SetDirectory(nullptr);
 
   TSpectrum s(4);
   s.Search(fHistSlowComponent.get(), 3, "goff", 0.005);
@@ -197,9 +264,9 @@ void TAsymmetry::PulseShapeCutLast()
   auto startBin = fHist->GetYaxis()->FindBin(peak - 3 * sigma);
   auto endBin = fHist->GetYaxis()->FindBin(peak + 3 * sigma);
 
-  fHistResult.reset();  // I really can not understand why this line is needed.
   fHistResult.reset(
       fHist->ProjectionX(Form("HistResult%02d", fIndex), startBin, endBin));
+  fHistResult->SetDirectory(nullptr);
 
   std::cout << fHistResult->FindBin(fTimeTh) << "\t" << fHistResult->GetNbinsX()
             << std::endl;

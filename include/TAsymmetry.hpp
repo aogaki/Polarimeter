@@ -18,9 +18,10 @@ class TAsymmetry
   TAsymmetry(TH2 *hist, int index = 0);
   ~TAsymmetry();
 
-  void SetHist(TH2 *hist) { fHist.reset((TH2D *)(hist->Clone())); };
+  void SetHist(TH2 *hist);
 
   void Plot();
+  void DrawResult();
   void Save(TString fileName);
 
   void DataAnalysis();
