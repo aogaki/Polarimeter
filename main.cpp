@@ -65,8 +65,10 @@ int main(int argc, char **argv)
   polMeter->SetShortGate(shortGate);
   auto longGate = std::stoi(doc["longGate"].get_utf8().value.to_string());
   polMeter->SetLongGate(longGate);
-  auto threshold = std::stoi(doc["threshold"].get_utf8().value.to_string());
-  polMeter->SetThreshold(threshold);
+  auto th = std::stoi(doc["threshold"].get_utf8().value.to_string());
+  polMeter->SetThreshold(th);
+  auto cfd = std::stoi(doc["CFDThreshold"].get_utf8().value.to_string());
+  polMeter->SetCFDThreshold(cfd);
 
   polMeter->DummyRun();
 

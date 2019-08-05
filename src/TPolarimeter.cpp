@@ -3,7 +3,7 @@
 
 #include <iostream>
 
-#include <TCanvas.h>
+#include <TBufferJSON.h>
 #include <TFile.h>
 #include <TGraph.h>
 #include <TTree.h>
@@ -39,8 +39,8 @@ TPolarimeter::~TPolarimeter() {}
 
 void TPolarimeter::Run()
 {
-  std::unique_ptr<TCanvas> canv(new TCanvas("canv", "test", 700, 500));
-  canv->Divide(2, 2);
+  std::unique_ptr<TCanvas> fCanvas(new TCanvas("Canvas", "test", 700, 500));
+  fCanvas->Divide(2, 2);
   std::unique_ptr<TGraph> grIn(new TGraph());
   grIn->SetMinimum(0);
   grIn->SetMaximum(18000);
@@ -78,16 +78,16 @@ void TPolarimeter::Run()
         grBeam->SetPoint(iData, iData * 2, hit.beamTrg[iData]);
       }
 
-      canv->cd(1);
+      fCanvas->cd(1);
       grIn->Draw("AL");
-      canv->cd(2);
+      fCanvas->cd(2);
       grBeam->Draw("AL");
-      canv->cd(3);
+      fCanvas->cd(3);
       grOut1->Draw("AL");
-      canv->cd(4);
+      fCanvas->cd(4);
       grOut2->Draw("AL");
-      canv->Modified();
-      canv->Update();
+      fCanvas->Modified();
+      fCanvas->Update();
     }
     usleep(1000);
   }
@@ -99,8 +99,8 @@ void TPolarimeter::Run()
 
 void TPolarimeter::DummyRun()
 {
-  std::unique_ptr<TCanvas> canv(new TCanvas("canv", "test", 1000, 1000));
-  canv->Divide(2, 2);
+  std::unique_ptr<TCanvas> fCanvas(new TCanvas("Canvas", "test", 1000, 1000));
+  fCanvas->Divide(2, 2);
 
   std::unique_ptr<TFile> file(new TFile("Data/wave11.root", "READ"));
   auto tree = (TTree *)file->Get("wave");
@@ -115,11 +115,11 @@ void TPolarimeter::DummyRun()
   tree->SetBranchAddress("trace8", &trace[2]);
 
   std::unique_ptr<TSignal> inSignal(
-      new TSignal(trace[0], fThreshold, fShortGate, fLongGate));
+      new TSignal(trace[0], fThreshold, fCFDThreshold, fShortGate, fLongGate));
   std::unique_ptr<TSignal> outSignal1(
-      new TSignal(trace[1], fThreshold, fShortGate, fLongGate));
+      new TSignal(trace[1], fThreshold, fCFDThreshold, fShortGate, fLongGate));
   std::unique_ptr<TSignal> outSignal2(
-      new TSignal(trace[1], fThreshold, fShortGate, fLongGate));
+      new TSignal(trace[1], fThreshold, fCFDThreshold, fShortGate, fLongGate));
   std::unique_ptr<TBeamSignal> beam(new TBeamSignal(trace[2]));
 
   const auto nEve = tree->GetEntries();
@@ -155,24 +155,29 @@ void TPolarimeter::DummyRun()
     if (tof2 > 0.) fHisOut1->Fill(tof2, ps2);
     if (tof3 > 0.) fHisOut2->Fill(tof3, ps3);
 
-    if (((iEve + 1) % 1000) == 0) {
-      canv->cd(1);
+    if (((iEve + 1) % 10000) == 0) {
+      fCanvas->cd(1);
       fHisIn->Draw("COL");
-      canv->cd(2);
+      fCanvas->cd(2);
       fHisOut1->Draw("COL");
-      canv->cd(3);
-      fHisOut2->Draw("COL");
+
       if (((iEve + 1) % 100000) == 0) {
         // if (0 == 0) {
-        canv->cd(4);
-        canv->cd(4)->SetLogz();
         Analysis();
+
+        fCanvas->cd(3);
+        fCanvas->cd(3)->SetLogz();
+        fInPlane->DrawResult();
+
+        fCanvas->cd(4);
+        fCanvas->cd(4)->SetLogz();
+        fOutPlane1->DrawResult();
       }
-      canv->Modified();
-      canv->Update();
+      fCanvas->Modified();
+      fCanvas->Update();
     }
 
-    usleep(10);
+    // usleep(10);
     if (kbhit()) break;
   }
 
@@ -199,7 +204,7 @@ void TPolarimeter::Analysis()
   std::cout << yieldOut2 << "\t" << yieldIn << "\t"
             << fabs(yieldIn - yieldOut2) / (yieldIn + yieldOut2) << std::endl;
 
-  fInPlane->DrawResult();
+  // fInPlane->DrawResult();
 }
 
 int TPolarimeter::kbhit()

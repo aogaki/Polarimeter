@@ -13,7 +13,8 @@ class TSignal
 {
  public:
   TSignal();
-  TSignal(std::vector<short> *signal, double th, int shortGate, int longGate);
+  TSignal(std::vector<short> *signal, double th, double cfd, int shortGate,
+          int longGate);
   ~TSignal();
 
   void ProcessSignal();
@@ -35,6 +36,7 @@ class TSignal
   int fLongGate;
   int fRewind;  // trigger - fRewind = start of integration
   double fThreshold;
+  double fCFDThreshold;
 
   virtual void CalBaseLine();
   double fBaseLine;

@@ -12,12 +12,13 @@ TSignal::TSignal()
   fRewind = 5;
 }
 
-TSignal::TSignal(std::vector<short> *signal, double th, int shortGate,
-                 int longGate)
+TSignal::TSignal(std::vector<short> *signal, double th, double cfd,
+                 int shortGate, int longGate)
     : TSignal()
 {
   fSignal = signal;
   fThreshold = th;
+  fCFDThreshold = cfd;
   fShortGate = shortGate;
   fLongGate = longGate;
 }
@@ -111,19 +112,26 @@ void TSignal::CalBaseLine()
 void TSignal::CalTrgTime()
 {
   fTrgTime = 0.;
+  auto min = *std::min_element(fSignal->begin(), fSignal->end());
+  if (fThreshold < fBaseLine - min) {
+    // Simple
+    // const auto th = fBaseLine - fThreshold;
 
-  const auto th = fBaseLine - fThreshold;
-  const auto searchSize = fSignal->size() - 1;
-  for (unsigned int i = 0; i < searchSize; i++) {
-    // std::cout << i <<"\t"<< fSignal[i] <<"\t"<< th <<"\t"<< fSignal[i + 1] <<
-    // std::endl;
-    if ((*fSignal)[i] >= th && (*fSignal)[i + 1] <= th) {
-      auto dx = 1.;
-      auto dy = double((*fSignal)[i + 1] - (*fSignal)[i]);
-      auto diff = double(th - (*fSignal)[i]);
-      fTrgTime = i + diff * dx / dy;
-      // std::cout << "hit\t" << fTrgTime << std::endl;
-      break;
+    // CFD
+    const auto th = fBaseLine - ((fBaseLine - min) * (fCFDThreshold / 100.));
+
+    const auto searchSize = fSignal->size() - 1;
+    for (unsigned int i = 0; i < searchSize; i++) {
+      // std::cout << i <<"\t"<< fSignal[i] <<"\t"<< th <<"\t"<< fSignal[i + 1] <<
+      // std::endl;
+      if ((*fSignal)[i] >= th && (*fSignal)[i + 1] <= th) {
+        auto dx = 1.;
+        auto dy = double((*fSignal)[i + 1] - (*fSignal)[i]);
+        auto diff = double(th - (*fSignal)[i]);
+        fTrgTime = i + diff * dx / dy;
+        // std::cout << "hit\t" << fTrgTime << std::endl;
+        break;
+      }
     }
   }
 }

@@ -19,27 +19,17 @@ TAsymmetry::TAsymmetry()
   fSpectrumTh = 0.5;
 }
 
-TAsymmetry::TAsymmetry(TH2 *hist, int index) : TAsymmetry()
+TAsymmetry::TAsymmetry(const TH2 *hist, int index) : TAsymmetry()
 {
-  // If NOT set directory as nullptr, delete is nightmare.
   fIndex = index;
-  fHist.reset((TH2D *)hist->Clone(Form("Hist2D%02d", fIndex)));
-  fHist->SetTitle("PS vs TOF");
-  fHist->SetDirectory(nullptr);
-
-  fHistTime.reset((TH1D *)hist->ProjectionX(Form("HistTime%02d", fIndex)));
-  fHistTime->SetTitle("TOF");
-  fHistTime->SetDirectory(nullptr);
-
-  fHistPS.reset((TH1D *)hist->ProjectionY(Form("HistPS%02d", fIndex)));
-  fHistPS->SetTitle("PS");
-  fHistPS->SetDirectory(nullptr);
+  SetHist(hist);
 }
 
 TAsymmetry::~TAsymmetry() {}
 
-void TAsymmetry::SetHist(TH2 *hist)
+void TAsymmetry::SetHist(const TH2 *hist)
 {
+  // If NOT set directory as nullptr, delete is nightmare.
   fHist.reset((TH2D *)hist->Clone(Form("Hist2D%02d", fIndex)));
   fHist->SetTitle("PS vs TOF");
   fHist->SetDirectory(nullptr);

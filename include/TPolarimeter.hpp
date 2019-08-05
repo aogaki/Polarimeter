@@ -3,6 +3,7 @@
 
 #include <memory>
 
+#include <TCanvas.h>
 #include <TH2.h>
 
 #include "TAsymmetry.hpp"
@@ -24,14 +25,17 @@ class TPolarimeter
   void SetShortGate(uint16_t val) { fShortGate = val; };
   void SetLongGate(uint16_t val) { fLongGate = val; };
   void SetThreshold(uint16_t val) { fThreshold = val; };
+  void SetCFDThreshold(uint16_t val) { fCFDThreshold = val; };
 
  private:
   std::unique_ptr<TWaveRecord> fDigitizer;
   uint16_t fShortGate;
   uint16_t fLongGate;
   uint16_t fThreshold;
+  uint16_t fCFDThreshold;
 
-  // Think shared is really needed?
+  std::unique_ptr<TCanvas> fCanvas;
+
   std::unique_ptr<TH2D> fHisIn;
   std::unique_ptr<TH2D> fHisOut1;
   std::unique_ptr<TH2D> fHisOut2;

@@ -15,10 +15,10 @@ class TAsymmetry
 {
  public:
   TAsymmetry();
-  TAsymmetry(TH2 *hist, int index = 0);
+  TAsymmetry(const TH2 *hist, int index = 0);
   ~TAsymmetry();
 
-  void SetHist(TH2 *hist);
+  void SetHist(const TH2 *hist);
 
   void Plot();
   void DrawResult();
