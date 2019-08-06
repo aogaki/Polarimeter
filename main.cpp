@@ -70,7 +70,9 @@ int main(int argc, char **argv)
   auto cfd = std::stoi(doc["CFDThreshold"].get_utf8().value.to_string());
   polMeter->SetCFDThreshold(cfd);
 
+  polMeter->StartAcquisition();
   polMeter->DummyRun();
+  polMeter->StopAcquisition();
 
   return 0;
 }

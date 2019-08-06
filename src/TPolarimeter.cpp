@@ -1,19 +1,38 @@
 #include <fcntl.h>
 #include <termios.h>
 
+#include <fstream>
 #include <iostream>
+#include <thread>
 
 #include <TBufferJSON.h>
 #include <TFile.h>
 #include <TGraph.h>
 #include <TTree.h>
 
+#include <bsoncxx/builder/stream/document.hpp>
+#include <bsoncxx/builder/stream/helpers.hpp>
+#include <bsoncxx/json.hpp>
+#include <mongocxx/client.hpp>
+#include <mongocxx/instance.hpp>
+#include <mongocxx/stdx.hpp>
+#include <mongocxx/uri.hpp>
+using bsoncxx::builder::basic::kvp;
+using bsoncxx::builder::basic::make_document;
+using bsoncxx::builder::stream::document;
+using bsoncxx::builder::stream::finalize;
+
 #include "TAsymmetry.hpp"
 #include "TBeamSignal.hpp"
 #include "TPolarimeter.hpp"
 #include "TSignal.hpp"
 
-TPolarimeter::TPolarimeter() : fShortGate(30), fLongGate(300), fThreshold(500)
+TPolarimeter::TPolarimeter()
+    : fShortGate(30),
+      fLongGate(300),
+      fThreshold(500),
+      fTimeInterval(10),
+      fLastTime(0)
 {
   fHisIn.reset(new TH2D("HisIn", "PS vs TOF", 1000, 0., 100., 1000, 0., 1.));
   fHisIn->SetDirectory(nullptr);
@@ -37,71 +56,23 @@ TPolarimeter::TPolarimeter(uint16_t link) : TPolarimeter()
 
 TPolarimeter::~TPolarimeter() {}
 
-void TPolarimeter::Run()
+void TPolarimeter::StartAcquisition()
 {
-  std::unique_ptr<TCanvas> fCanvas(new TCanvas("Canvas", "test", 700, 500));
-  fCanvas->Divide(2, 2);
-  std::unique_ptr<TGraph> grIn(new TGraph());
-  grIn->SetMinimum(0);
-  grIn->SetMaximum(18000);
-  std::unique_ptr<TGraph> grOut1(new TGraph());
-  grOut1->SetMinimum(0);
-  grOut1->SetMaximum(18000);
-  std::unique_ptr<TGraph> grOut2(new TGraph());
-  grOut2->SetMinimum(0);
-  grOut2->SetMaximum(18000);
-  std::unique_ptr<TGraph> grBeam(new TGraph());
-  grBeam->SetMinimum(0);
-  grBeam->SetMaximum(18000);
+  fAcqFlag = true;
 
   fDigitizer->Initialize();
   fDigitizer->StartAcquisition();
-  for (int i = 0; true; i++) {
-    // if (i > 10) break;
-    if (kbhit()) break;
-    // std::cout << i << std::endl;
-    // for (int j = 0; j < 10; j++) fDigitizer->SendSWTrigger();
-    fDigitizer->ReadEvents();
-
-    const auto nHit = fDigitizer->GetNEvents();
-    // std::cout << nHit << " hits" << std::endl;
-
-    if (nHit > 0) {
-      std::vector<HitData_t> &buf = fDigitizer->GetDataVec();
-      auto hit = buf[buf.size() - 1];
-
-      const auto recordLength = hit.inPlane.size();
-      for (uint32_t iData = 0; iData < recordLength; iData++) {
-        grIn->SetPoint(iData, iData * 2, hit.inPlane[iData]);
-        grOut1->SetPoint(iData, iData * 2, hit.outPlane1[iData]);
-        grOut2->SetPoint(iData, iData * 2, hit.outPlane2[iData]);
-        grBeam->SetPoint(iData, iData * 2, hit.beamTrg[iData]);
-      }
-
-      fCanvas->cd(1);
-      grIn->Draw("AL");
-      fCanvas->cd(2);
-      grBeam->Draw("AL");
-      fCanvas->cd(3);
-      grOut1->Draw("AL");
-      fCanvas->cd(4);
-      grOut2->Draw("AL");
-      fCanvas->Modified();
-      fCanvas->Update();
-    }
-    usleep(1000);
-  }
-
-  fDigitizer->StopAcquisition();
-
-  std::cout << std::endl;
 }
 
-void TPolarimeter::DummyRun()
+void TPolarimeter::StopAcquisition()
 {
-  std::unique_ptr<TCanvas> fCanvas(new TCanvas("Canvas", "test", 1000, 1000));
-  fCanvas->Divide(2, 2);
+  fAcqFlag = false;
 
+  fDigitizer->StopAcquisition();
+}
+
+void TPolarimeter::FetchDummyData()
+{
   std::unique_ptr<TFile> file(new TFile("Data/wave11.root", "READ"));
   auto tree = (TTree *)file->Get("wave");
   tree->SetBranchStatus("*", kFALSE);
@@ -114,74 +85,119 @@ void TPolarimeter::DummyRun()
   tree->SetBranchStatus("trace8", kTRUE);
   tree->SetBranchAddress("trace8", &trace[2]);
 
-  std::unique_ptr<TSignal> inSignal(
-      new TSignal(trace[0], fThreshold, fCFDThreshold, fShortGate, fLongGate));
-  std::unique_ptr<TSignal> outSignal1(
-      new TSignal(trace[1], fThreshold, fCFDThreshold, fShortGate, fLongGate));
-  std::unique_ptr<TSignal> outSignal2(
-      new TSignal(trace[1], fThreshold, fCFDThreshold, fShortGate, fLongGate));
-  std::unique_ptr<TBeamSignal> beam(new TBeamSignal(trace[2]));
+  BeamData_t data;
 
   const auto nEve = tree->GetEntries();
-  for (auto iEve = 0; true; iEve++) {
+  for (auto iEve = 0; fAcqFlag; iEve++) {
     if (iEve >= nEve) iEve = 0;
     tree->GetEntry(iEve);
-    inSignal->ProcessSignal();
-    outSignal1->ProcessSignal();
-    outSignal2->ProcessSignal();
-    beam->ProcessSignal();
 
-    auto beamTrg = beam->GetTrgTime();
+    data.in = *trace[0];
+    data.out1 = *trace[1];
+    data.out2 = *trace[1];
+    data.beam = *trace[2];
 
-    auto long1 = inSignal->GetLongCharge();
-    auto short1 = inSignal->GetShortCharge();
-    auto ps1 = short1 / long1;
-    constexpr auto timeOffset1 = 0.;
-    auto tof1 = inSignal->GetTrgTime() - beamTrg + timeOffset1;
+    fMutex.lock();
+    fQueue.push_back(data);
+    fMutex.unlock();
 
-    auto long2 = outSignal1->GetLongCharge();
-    auto short2 = outSignal1->GetShortCharge();
-    auto ps2 = short2 / long2;
-    constexpr auto timeOffset2 = 10.14 + 1.04;  // Check Aogaki
-    auto tof2 = outSignal1->GetTrgTime() - beamTrg + timeOffset2;
-
-    auto long3 = outSignal2->GetLongCharge();
-    auto short3 = outSignal2->GetShortCharge();
-    auto ps3 = short3 / long3;
-    constexpr auto timeOffset3 = 10.14 + 1.04;  // Check Aogaki
-    auto tof3 = outSignal2->GetTrgTime() - beamTrg + timeOffset3;
-
-    if (tof1 > 0.) fHisIn->Fill(tof1, ps1);
-    if (tof2 > 0.) fHisOut1->Fill(tof2, ps2);
-    if (tof3 > 0.) fHisOut2->Fill(tof3, ps3);
-
-    if (((iEve + 1) % 10000) == 0) {
-      fCanvas->cd(1);
-      fHisIn->Draw("COL");
-      fCanvas->cd(2);
-      fHisOut1->Draw("COL");
-
-      if (((iEve + 1) % 100000) == 0) {
-        // if (0 == 0) {
-        Analysis();
-
-        fCanvas->cd(3);
-        fCanvas->cd(3)->SetLogz();
-        fInPlane->DrawResult();
-
-        fCanvas->cd(4);
-        fCanvas->cd(4)->SetLogz();
-        fOutPlane1->DrawResult();
-      }
-      fCanvas->Modified();
-      fCanvas->Update();
-    }
-
-    // usleep(10);
-    if (kbhit()) break;
+    usleep(1);
   }
 
   file->Close();
+}
+
+void TPolarimeter::FillHists()
+{
+  std::unique_ptr<TSignal> inSignal(
+      new TSignal(nullptr, fThreshold, fCFDThreshold, fShortGate, fLongGate));
+  std::unique_ptr<TSignal> outSignal1(
+      new TSignal(nullptr, fThreshold, fCFDThreshold, fShortGate, fLongGate));
+  std::unique_ptr<TSignal> outSignal2(
+      new TSignal(nullptr, fThreshold, fCFDThreshold, fShortGate, fLongGate));
+  std::unique_ptr<TBeamSignal> beam(new TBeamSignal(nullptr));
+
+  while (fAcqFlag) {
+    while (!fQueue.empty()) {
+      auto data = fQueue.front();
+
+      inSignal->SetSignal(&(data.in));
+      outSignal1->SetSignal(&(data.out1));
+      outSignal2->SetSignal(&(data.out2));
+      beam->SetSignal(&(data.beam));
+
+      inSignal->ProcessSignal();
+      outSignal1->ProcessSignal();
+      outSignal2->ProcessSignal();
+      beam->ProcessSignal();
+
+      auto beamTrg = beam->GetTrgTime();
+
+      auto long1 = inSignal->GetLongCharge();
+      auto short1 = inSignal->GetShortCharge();
+      auto ps1 = short1 / long1;
+      constexpr auto timeOffset1 = 0.;
+      auto tof1 = inSignal->GetTrgTime() - beamTrg + timeOffset1;
+
+      auto long2 = outSignal1->GetLongCharge();
+      auto short2 = outSignal1->GetShortCharge();
+      auto ps2 = short2 / long2;
+      constexpr auto timeOffset2 = 10.14 + 1.04;  // Check Aogaki
+      auto tof2 = outSignal1->GetTrgTime() - beamTrg + timeOffset2;
+
+      auto long3 = outSignal2->GetLongCharge();
+      auto short3 = outSignal2->GetShortCharge();
+      auto ps3 = short3 / long3;
+      constexpr auto timeOffset3 = 10.14 + 1.04;  // Check Aogaki
+      auto tof3 = outSignal2->GetTrgTime() - beamTrg + timeOffset3;
+
+      fMutex.lock();
+
+      if (tof1 > 0.) fHisIn->Fill(tof1, ps1);
+      if (tof2 > 0.) fHisOut1->Fill(tof2, ps2);
+      if (tof3 > 0.) fHisOut2->Fill(tof3, ps3);
+
+      fQueue.pop_front();
+
+      fMutex.unlock();
+    }
+
+    usleep(1000);
+  }
+}
+
+void TPolarimeter::DummyRun()
+{
+  std::thread fetchData(&TPolarimeter::FetchDummyData, this);
+  std::thread fillHists(&TPolarimeter::FillHists, this);
+  std::thread timeCheck(&TPolarimeter::TimeCheck, this);
+
+  while (true) {
+    if (kbhit()) {
+      fAcqFlag = false;
+      fetchData.join();
+      fillHists.join();
+      timeCheck.join();
+      break;
+    }
+
+    usleep(1000);
+  }
+}
+
+void TPolarimeter::TimeCheck()
+{
+  while (fAcqFlag) {
+    if (fLastTime == 0) fLastTime = time(0);
+    auto currentTime = time(0);
+    if ((currentTime - fLastTime) >= fTimeInterval) {
+      Analysis();
+      PlotHists();
+      UploadResults();
+      fLastTime = currentTime;
+    }
+    usleep(1000);
+  }
 }
 
 void TPolarimeter::Analysis()
@@ -205,6 +221,49 @@ void TPolarimeter::Analysis()
             << fabs(yieldIn - yieldOut2) / (yieldIn + yieldOut2) << std::endl;
 
   // fInPlane->DrawResult();
+}
+
+void TPolarimeter::PlotHists()
+{
+  if (!fCanvas) {
+    fCanvas.reset(new TCanvas("Canvas", "test", 1000, 1000));
+    fCanvas->Divide(2, 2);
+  }
+
+  fCanvas->cd(1);
+  fHisIn->Draw("COL");
+
+  fCanvas->cd(2);
+  fHisOut1->Draw("COL");
+
+  fCanvas->cd(3);
+  fCanvas->cd(3)->SetLogz();
+  fInPlane->DrawResult();
+
+  fCanvas->cd(4);
+  fCanvas->cd(4)->SetLogz();
+  fOutPlane1->DrawResult();
+
+  fCanvas->Modified();
+  fCanvas->Update();
+}
+
+void TPolarimeter::UploadResults()
+{
+  std::cout << "result" << std::endl;
+  auto result = TBufferJSON::ToJSON(fCanvas.get());
+  result.ReplaceAll("$pair", "aogaki_pair");
+
+  mongocxx::client conn{
+      mongocxx::uri{"mongodb://daq:nim2camac@192.168.161.73/GBS"}};
+  auto collection = conn["GBS"]["PolMeterResult"];
+  bsoncxx::builder::stream::document buf{};
+  buf << "in" << std::to_string(fInPlane->GetYield()) << "out1"
+      << std::to_string(fOutPlane1->GetYield()) << "out2"
+      << std::to_string(fOutPlane2->GetYield()) << "hists" << result.Data()
+      << "time" << std::to_string(time(0));
+  collection.insert_one(buf.view());
+  buf.clear();
 }
 
 int TPolarimeter::kbhit()
